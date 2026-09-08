@@ -1,0 +1,74 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: gofilm-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_secret_pwd_change_me}  # ⚠️ 部署校验: 必须提供强密码
+      MYSQL_DATABASE: ${MYSQL__DB:-gofilm}
+      MYSQL_USER: ${MYSQL__USER:-gofilm}
+      MYSQL_PASSWORD: ${MYSQL__PASSWORD:-gofilm_secret_pwd}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - gofilm-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: gofilm-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - gofilm-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gofilm-app
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy  # ⚠️ 部署校验: 等待 MySQL 健康检查通过
+      redis:
+        condition: service_healthy  # ⚠️ 部署校验: 等待 Redis 健康检查通过
+    env_file:
+      - .env  # ⚠️ 部署校验: 必须存在 .env 文件
+    environment:
+      MYSQL__HOST: mysql  # ⚠️ 部署校验: Docker 网络内使用服务名
+      REDIS__HOST: redis  # ⚠️ 部署校验: Docker 网络内使用服务名
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app/app
+    networks:
+      - gofilm-net
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  gofilm-net:
+    driver: bridge
